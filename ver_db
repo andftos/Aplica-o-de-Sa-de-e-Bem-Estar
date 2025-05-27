@@ -1,0 +1,30 @@
+from db import obter_conexao
+
+def ver_todas_as_tabelas():
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            # Obter todas as tabelas da base de dados atual
+            cursor.execute("SHOW TABLES")
+            tabelas = cursor.fetchall()
+            print("📋 Tabelas encontradas:")
+            for (t,) in tabelas:
+                print(f" - {t}")
+            print()
+
+            # Para cada tabela, mostrar todos os dados
+            for (t,) in tabelas:
+                print(f"📄 Conteúdo da tabela: {t}")
+                cursor.execute(f"SELECT * FROM {t}")
+                linhas = cursor.fetchall()
+                colunas = [desc[0] for desc in cursor.description]
+
+                # Cabeçalho
+                print(" | ".join(colunas))
+                print("-" * 50)
+
+                for linha in linhas:
+                    print(" | ".join(str(c) for c in linha))
+                print("\n" + "=" * 60 + "\n")
+
+if __name__ == "__main__":
+    ver_todas_as_tabelas()
