@@ -1,0 +1,125 @@
+import customtkinter as ctk
+from datetime import datetime
+from db import obter_conexao
+
+
+def janela_adicionar_registo(user_id, atualizar_grafico):
+    def guardar():
+        data = entry_data.get().strip()
+        exercicio = entry_exercicio.get().strip()
+        calorias = entry_calorias.get().strip()
+
+        if not data:
+            data = datetime.now().strftime("%Y-%m-%d")
+        else:
+            try:
+                data_obj = datetime.strptime(data, "%Y-%m-%d")
+                if data_obj.date() > datetime.now().date():
+                    resultado.configure(text="Data no futuro")
+                    return
+            except ValueError:
+                resultado.configure(text="Formato inválido")
+                return
+
+        try:
+            exercicio = int(exercicio)
+            if exercicio < 0 or exercicio > 1440:
+                resultado.configure(text="Exercício inválido")
+                return
+        except ValueError:
+            resultado.configure(text="Exercício deve ser número")
+            return
+
+        try:
+            calorias = int(calorias)
+            if calorias < 0 or calorias > 10000:
+                resultado.configure(text="Calorias inválidas")
+                return
+        except ValueError:
+            resultado.configure(text="Calorias devem ser número")
+            return
+
+        with obter_conexao() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO registos (data, exercicio, calorias, user_id)
+                    VALUES (%s, %s, %s, %s)
+                """, (data, exercicio, calorias, user_id))
+                conn.commit()
+        resultado.configure(text="Registo adicionado!")
+        atualizar_grafico()
+        janela.destroy()
+
+    # Criar pop-up
+    janela = ctk.CTkToplevel()
+    janela.title("Adicionar Registo")
+    janela.geometry("400x600")
+
+    # Posicionar ao lado da janela principal
+    janela_principal = janela.master  # ou passa a janela principal como argumento
+    janela_principal.update_idletasks()
+
+    x = janela_principal.winfo_x()
+    y = janela_principal.winfo_y()
+    largura = janela_principal.winfo_width()
+
+    janela.geometry(f"+{x - 400}+{y}")
+
+    ctk.CTkLabel(janela, text="Data (AAAA-MM-DD):").pack(pady=5)
+    entry_data = ctk.CTkEntry(janela)
+    entry_data.pack()
+
+    def preencher_data_hoje():
+        hoje = datetime.now().strftime("%Y-%m-%d")
+        entry_data.delete(0, "end")
+        entry_data.insert(0, hoje)
+
+    ctk.CTkButton(janela, text="Usar Data de Hoje", command=preencher_data_hoje).pack(pady=5)
+
+    ctk.CTkLabel(janela, text="Minutos de Exercício:").pack(pady=5)
+    entry_exercicio = ctk.CTkEntry(janela)
+    entry_exercicio.pack()
+
+    ctk.CTkLabel(janela, text="Calorias Ingeridas:").pack(pady=5)
+    entry_calorias = ctk.CTkEntry(janela)
+    entry_calorias.pack()
+
+    resultado = ctk.CTkLabel(janela, text="")
+    resultado.pack(pady=10)
+
+    ctk.CTkButton(janela, text="Guardar", command=guardar).pack(pady=10)
+
+
+def login_utilizador(nome, senha):
+    with obter_conexao() as conn:
+        with conn.cursor(dictionary=True) as cursor:
+            cursor.execute("""
+                SELECT id FROM utilizadores
+                WHERE nome = %s AND senha = %s
+            """, (nome, senha))
+            user = cursor.fetchone()
+
+            if user:
+                return {"sucesso": True, "user_id": user["id"]}
+            else:
+                return {"sucesso": False}
+
+
+def novo_utilizador(nome, senha):
+    if not nome or not senha:
+        return "Nome e senha não podem estar vazios."
+
+    try:
+        conn = obter_conexao()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id FROM utilizadores WHERE nome = %s", (nome,))
+            if cursor.fetchone():
+                return "Utilizador já existe."
+
+            cursor.execute("INSERT INTO utilizadores (nome, senha) VALUES (%s, %s)", (nome, senha))
+            conn.commit()
+            return "Utilizador criado com sucesso."
+    except Exception as e:
+        return f"Erro ao criar utilizador: {e}"
+
+
