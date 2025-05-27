@@ -1,0 +1,139 @@
+from db import obter_conexao
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+# Criação da tabela (corre só uma vez)
+with obter_conexao() as conn:
+    with conn.cursor() as cursor:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS registos (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            data DATE NOT NULL,
+            exercicio INT,
+            calorias INT
+        )
+        """)
+        conn.commit()
+
+# === FUNÇÕES ===
+
+from db import obter_conexao
+from datetime import datetime
+
+def adicionar_registo(user_id):
+    while True:
+        data_input = input("Data (AAAA-MM-DD) [ou Enter para hoje]: ").strip()
+        if not data_input:
+            data = datetime.now().strftime("%Y-%m-%d")
+            break
+        try:
+            data_obj = datetime.strptime(data_input, "%Y-%m-%d")
+            hoje = datetime.now()
+            if data_obj.date() > hoje.date():
+                print("A data não pode ser no futuro.")
+            else:
+                data = data_input
+                break
+        except ValueError:
+            print("Formato inválido. Use AAAA-MM-DD.")
+
+    while True:
+        try:
+            exercicio = int(input("Minutos de exercício: "))
+            if exercicio < 0 or exercicio > 1440:
+                print("Valor inválido. Deve ser entre 0 e 1440 minutos.")
+                continue
+            break
+        except ValueError:
+            print("Insira um número inteiro válido.")
+
+    while True:
+        try:
+            calorias = int(input("Calorias ingeridas: "))
+            if calorias < 0 or calorias > 10000:
+                print("Valor inválido. Deve ser entre 0 e 10000.")
+                continue
+            break
+        except ValueError:
+            print("Insira um número inteiro válido.")
+
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO registos (data, exercicio, calorias, user_id)
+                VALUES (%s, %s, %s, %s)
+            """, (data, exercicio, calorias, user_id))
+            conn.commit()
+            print("Registo adicionado com sucesso!\n")
+
+def listar_registos(user_id):
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT data,exercicio, calorias
+                FROM registos
+                WHERE user_id = %s
+                ORDER BY data
+            """, (user_id,))
+            registos = cursor.fetchall()
+            for r in registos:
+                print(f"{r[0]} | Exercício: {r[1]} min | Calorias: {r[2]}")
+
+
+def mostrar_grafico(user_id):
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT SUM(exercicio), SUM(calorias)
+                FROM registos
+                WHERE user_id = %s
+            """, (user_id,))
+            resultado = cursor.fetchone()
+
+            if not resultado or (resultado[0] is None and resultado[1] is None):
+                print("Nenhum dado para mostrar no gráfico.")
+                return
+
+            exercicio_total = resultado[0] or 0
+            calorias_total = resultado[1] or 0
+
+            if exercicio_total == 0 and calorias_total == 0:
+                print("Nenhum dado válido para mostrar no gráfico.")
+                return
+
+            labels = ['Exercício (min)', 'Calorias']
+            valores = [exercicio_total, calorias_total]
+            cores = ['#66b3ff', '#ff9999']
+
+            plt.figure(figsize=(6, 6))
+            plt.pie(valores, labels=labels, colors=cores, autopct='%1.1f%%', startangle=90)
+            plt.title("Distribuição de Exercício e Calorias")
+            plt.axis('equal')
+            plt.tight_layout()
+            plt.show()
+
+def menu():
+    while True:
+        print("\n--- MENU SAÚDE E BEM-ESTAR ---")
+        print("1. Adicionar registo")
+        print("2. Ver registos")
+        print("3. Mostrar gráfico")
+        print("4. Sair")
+        opcao = input("Escolha uma opção: ")
+
+        if opcao == '1':
+            adicionar_registo()
+        elif opcao == '2':
+            listar_registos()
+        elif opcao == '3':
+            mostrar_grafico()
+        elif opcao == '4':
+            break
+        else:
+            print("Opção inválida.\n")
+
+if __name__ == "__main__":
+    menu()
+
