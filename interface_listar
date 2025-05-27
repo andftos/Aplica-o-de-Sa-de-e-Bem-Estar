@@ -1,0 +1,31 @@
+import customtkinter as ctk
+from db import obter_conexao
+
+def janela_listar_registos():
+    janela = ctk.CTkToplevel()
+    janela.title("Adicionar Registo")
+    janela.geometry("400x600")
+
+    # Posicionar ao lado da janela principal
+    janela_principal = janela.master  # ou passa a janela principal como argumento
+    janela_principal.update_idletasks()
+
+    x = janela_principal.winfo_x()
+    y = janela_principal.winfo_y()
+    largura = janela_principal.winfo_width()
+
+    janela.geometry(f"+{x - 400}+{y}")
+
+    caixa_texto = ctk.CTkTextbox(janela, width=360, height=560)
+    caixa_texto.pack(pady=10)
+
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM registos ORDER BY data")
+            registos = cursor.fetchall()
+            if not registos:
+                caixa_texto.insert("0.0", "Sem registos encontrados.")
+            else:
+                for r in registos:
+                    linha = f"{r[1]} | Exercício: {r[2]} min | Calorias: {r[3]}\n"
+                    caixa_texto.insert("end", linha)
