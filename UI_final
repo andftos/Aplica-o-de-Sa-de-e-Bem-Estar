@@ -1,0 +1,706 @@
+# Bibliotecas externas
+import customtkinter as ctk
+from customtkinter import CTkImage
+from PIL import Image
+import pygame
+from CTkColorPicker import AskColor
+import mysql.connector
+import csv
+import json
+from threading import Timer
+import random
+
+# Bibliotecas internas
+from tabelas import criar_tabela_utilizadores, criar_tabela_preferencias
+from interface_adicionar import janela_adicionar_registo, login_utilizador, novo_utilizador
+from interface_listar import janela_listar_registos
+from db import obter_conexao
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from datetime import date, datetime
+from tkinter import filedialog, messagebox
+# Inicializar pygame mixer
+pygame.mixer.init()
+criar_tabela_utilizadores()
+criar_tabela_preferencias()
+
+# Configuração
+VOLUME_PADRAO = 0.7  # Valor entre 0.0 e 1.0
+lembretes_ativos = []
+janelas_lembrete = []
+user_id = None
+texto_branco = False
+
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tooltip = None
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        x = self.widget.winfo_rootx() + 25
+        y = self.widget.winfo_rooty() + 25
+
+        self.tooltip = ctk.CTkToplevel(self.widget)
+        self.tooltip.wm_overrideredirect(True)
+        self.tooltip.wm_geometry(f"+{x}+{y}")
+
+        label = ctk.CTkLabel(self.tooltip, text=self.text,
+                             corner_radius=6,
+                             fg_color=("gray75", "gray25"),
+                             padx=10, pady=5)
+        label.pack()
+
+    def leave(self, event=None):
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
+
+
+def escurecer_cor(hex_color, factor=0.2):
+    """Escurece uma cor HEX pelo fator especificado (0-1)"""
+    if not hex_color or not isinstance(hex_color, str):
+        return "#0078D7"  # Default color if invalid
+
+    hex_color = hex_color.lstrip('#')
+
+    # Ensure we have a valid 6-character hex color
+    if len(hex_color) != 6 or not all(c in '0123456789abcdefABCDEF' for c in hex_color):
+        return "#0078D7"  # Default color if invalid
+
+    try:
+        r, g, b = tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+        r = max(0, int(r * (1 - factor)))
+        g = max(0, int(g * (1 - factor)))
+        b = max(0, int(b * (1 - factor)))
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except:
+        return "#0078D7"
+
+
+
+# Configuração inicial
+cor_selecionada = "#0078D7"
+volume_atual = VOLUME_PADRAO
+estado_login = 0
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+
+# App principal
+app = ctk.CTk()
+largura_janela = 1024
+altura_janela = 600
+
+largura_ecra = app.winfo_screenwidth()
+altura_ecra = app.winfo_screenheight()
+
+pos_x = int((largura_ecra / 2) - (largura_janela / 2))
+pos_y = int((altura_ecra / 2) - (altura_janela / 2))
+
+app.geometry(f"{largura_janela}x{altura_janela}+{pos_x}+{pos_y}")
+app.title("Saúde e Bem Estar")
+
+# Carregar o som
+try:
+    som = pygame.mixer.Sound("sons/water-2s.mp3")
+except:
+    print("Erro ao carregar o arquivo de som")
+    som = None
+
+texto_preto = True
+botoes = []
+
+# ---------------- Funções ---------------- #
+
+def mostrar_pagina(pagina):
+    for frame in [pagina_principal, pagina_definicoes]:
+        frame.place_forget()
+    pagina.place(relwidth=1, relheight=1)
+
+def alternar_tema():
+    atual = ctk.get_appearance_mode()
+    ctk.set_appearance_mode("light" if atual == "Dark" else "dark")
+
+def toggle_menu():
+    if menu_visivel[0]:
+        for botao in botoes_menu:
+            botao.place_forget()
+        menu_visivel[0] = False
+    else:
+        for i, botao in enumerate(botoes_menu):
+            botao.place(x=10, y=50 + i * 40)
+        menu_visivel[0] = True
+
+def tocar_som():
+    global volume_atual
+    if som:
+        som.set_volume(volume_atual)
+        som.play()
+
+def alterar_volume(valor):
+    global volume_atual
+    volume_atual = float(valor)
+    if som:
+        som.set_volume(volume_atual)
+
+def aplicar_cor_todos_botoes(cor_hex):
+    """Aplica a cor a todos os botões com hover mais escuro"""
+    cor_hover = escurecer_cor(cor_hex)
+
+    todos_botoes = [
+        botao_menu, botao_def_icon, *botoes_menu,
+        botao_modo, botao_voltar, btn_escolher_cor,
+        botao_login, botao_New_user, botao_som, btn_txt_cor,
+        botao_guardar_pref,
+    ]
+
+    for botao in todos_botoes:
+        botao.configure(
+            fg_color=cor_hex,
+            hover_color=cor_hover
+        )
+
+def ask_color():
+    global cor_selecionada
+    pick_color = AskColor()
+    nova_cor = pick_color.get()
+    if nova_cor:
+        cor_selecionada = nova_cor
+        aplicar_cor_todos_botoes(cor_selecionada)
+
+def login_nome():
+    global user_id
+    nome = tex_box_name.get().strip()
+    senha = tex_box_pass.get().strip()
+
+
+    if nome == "admin" and senha == "123":
+        abrir_gestor_utilizadores()
+        label_status.configure(text="Entrou como administrador!", text_color="green")
+        return
+
+    resultado = login_utilizador(nome, senha)
+
+    if isinstance(resultado, dict) and resultado.get("sucesso"):
+        user_id = resultado.get("user_id")
+        label_status.configure(text="Login com sucesso!", text_color="green")
+        mostrar_grafico_do_user()
+        apos_login(user_id)
+        iniciar_lembretes()
+    else:
+        label_status.configure(text="Nome ou senha incorretos.", text_color="red")
+        user_id = None
+def registar_novo_utilizador():
+    nome = tex_box_name.get().strip()
+    senha = tex_box_pass.get().strip()
+    resultado = novo_utilizador(nome, senha)
+    label_status.configure(text=resultado, text_color="green" if "criado" in resultado.lower() else "red")
+
+def abrir_gestor_utilizadores():
+    janela = ctk.CTkToplevel(app)
+    janela.geometry("500x400")
+    janela.title("Gestor de Utilizadores")
+
+    lista_box = ctk.CTkTextbox(janela, height=200, width=460)
+    lista_box.pack(pady=20)
+
+    def carregar_utilizadores():
+        lista_box.delete("1.0", "end")
+        with obter_conexao() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT id, nome FROM utilizadores")
+                utilizadores = cursor.fetchall()
+                for user in utilizadores:
+                    lista_box.insert("end", f"ID: {user[0]} | Nome: {user[1]}\n")
+
+    def remover_utilizador():
+        id_user = entry_id.get().strip()
+        if not id_user.isdigit():
+            messagebox.showwarning("Aviso", "Insira um ID válido.")
+            return
+        with obter_conexao() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM utilizadores WHERE id = %s", (id_user,))
+                conn.commit()
+        carregar_utilizadores()
+        messagebox.showinfo("Removido", f"Utilizador com ID {id_user} foi removido.")
+
+    btn_atualizar = ctk.CTkButton(janela, text="Atualizar Lista", command=carregar_utilizadores)
+    btn_atualizar.pack(pady=5)
+
+    frame_remover = ctk.CTkFrame(janela)
+    frame_remover.pack(pady=10)
+
+    entry_id = ctk.CTkEntry(frame_remover, width=150, placeholder_text="ID do utilizador")
+    entry_id.pack(side="left", padx=5)
+
+    btn_remover = ctk.CTkButton(frame_remover, text="Remover", command=remover_utilizador)
+    btn_remover.pack(side="left")
+
+    carregar_utilizadores()
+
+
+def parar_lembretes():
+    for timer in lembretes_ativos:
+        timer.cancel()
+    lembretes_ativos.clear()
+
+def carregar_exercicios():
+    try:
+        with open('exercicios.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return ["Alongamento rápido por 1 minuto"]  # Fallback
+
+
+def mostrar_lembrete(mensagem, tocar_som=False):
+    # Fechar lembretes anteriores
+    for janela in janelas_lembrete:
+        try:
+            janela.destroy()
+        except:
+            pass
+    janelas_lembrete.clear()
+
+    # Criar nova janela
+    janela = ctk.CTkToplevel(app)
+    janela.title("Lembrete Importante")
+    janela.geometry("400x250")
+    janela.attributes('-topmost', True)
+
+
+    # Conteúdo
+    ctk.CTkLabel(janela, text="\n Lembrete \n",
+                 font=("Arial", 18, "bold")).pack()
+    ctk.CTkLabel(janela, text=mensagem,
+                 font=("Arial", 16)).pack(pady=20)
+
+    # Botão
+    btn = ctk.CTkButton(janela, text="OK",
+                        command=janela.destroy,
+                        width=100)
+    btn.pack(pady=10)
+    btn.focus_set()
+
+    janelas_lembrete.append(janela)
+
+def agendar_lembrete(inicio, mensagem, intervalo=None, tocar_som=False):
+    def lembrete():
+        mostrar_lembrete(mensagem, tocar_som)
+        if intervalo:  # Se houver intervalo, agenda a próxima ocorrência
+            agendar_lembrete(intervalo, mensagem, intervalo, tocar_som)
+
+    t = Timer(inicio, lembrete)
+    t.start()
+    lembretes_ativos.append(t)
+
+
+def iniciar_lembretes():
+    # Cancelar quaisquer lembretes anteriores
+    parar_lembretes()
+
+    # Carregar exercícios
+    exercicios = carregar_exercicios()
+
+
+    agua_inicio = 10
+    levantar_inicio = 40
+    exercicio_inicio = 90
+
+
+    agua_intervalo = 60 * 60
+    levantar_intervalo = 50 * 60
+    exercicio_intervalo = 90 * 60
+
+    agendar_lembrete(agua_inicio, "Lembre-se de se manter hidratado.",
+                     agua_intervalo, True)
+
+
+    agendar_lembrete(levantar_inicio, "Hora de se levantar! \nAlongue-se por 2 minutos.",
+                     levantar_intervalo, False)
+
+
+    agendar_lembrete(exercicio_inicio, f"Hora de se exercitar! \nExercício: {random.choice(exercicios)}",
+                     exercicio_intervalo,False)
+
+
+
+    def lembrete_exercicio():
+        exercicio = random.choice(exercicios)
+        mostrar_lembrete(f"Hora de se exercitar! Exercício: {exercicio}")
+        agendar_lembrete(90, f"Hora de se exercitar! Exercício: {random.choice(exercicios)}", True)
+
+    t = Timer(180, lembrete_exercicio)  # 3 minutos = 180 segundos
+    t.start()
+    lembretes_ativos.append(t)
+
+
+def mostrar_grafico_do_user():
+    if user_id is None:
+        return
+
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                 SELECT SUM(exercicio), SUM(calorias)
+                 FROM registos
+                 WHERE user_id = %s
+             """, (user_id,))
+            resultado = cursor.fetchone()
+
+    if not resultado or (resultado[0] is None and resultado[1] is None):
+        return
+
+    exercicio_total = resultado[0] or 0
+    calorias_total = resultado[1] or 0
+
+    for widget in frame_grafico.winfo_children():
+        widget.destroy()
+
+    fig = Figure(figsize=(5, 3), dpi=100)
+    ax = fig.add_subplot(111)
+    valores = [exercicio_total, calorias_total]
+    labels = ['Exercício (min)', 'Calorias']
+    cores = ['#66b3ff', '#ff9999']
+    ax.pie(valores, labels=labels, colors=cores, autopct='%1.1f%%', startangle=90)
+    ax.set_title("Distribuição de Exercício e Calorias")
+    ax.axis('equal')
+
+    canvas = FigureCanvasTkAgg(fig, master=frame_grafico)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill="both", expand=True)
+
+def trocar_cor_texto():
+    global texto_preto
+    nova_cor = "black" if not texto_preto else "white"
+    texto_preto = not texto_preto
+
+    todos_botoes = [
+        botao_menu, botao_def_icon, *botoes_menu,
+        botao_modo, botao_voltar, btn_escolher_cor,
+        botao_login, botao_New_user, botao_som, btn_txt_cor,
+        botao_guardar_pref,
+    ]
+
+    for botao in todos_botoes:
+        botao.configure(text_color=nova_cor)
+
+def guardar_preferencias_cores(user_id, cor_fundo, cor_btn):
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            # Vamos usar INSERT ... ON DUPLICATE KEY UPDATE para inserir ou atualizar
+            cursor.execute("""
+                INSERT INTO preferencias (user_id, cor_fundo, cor_btn)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    cor_fundo = VALUES(cor_fundo),
+                    cor_btn = VALUES(cor_btn)
+            """, (user_id, cor_fundo, cor_btn))
+            conn.commit()
+
+
+def obter_preferencias_cores(user_id):
+    try:
+        conn = obter_conexao()
+        with conn.cursor(buffered=True) as cursor:
+            cursor.execute("""
+                SELECT cor_fundo, cor_btn FROM preferencias WHERE user_id = %s
+            """, (user_id,))
+            resultado = cursor.fetchone()
+
+            if resultado:
+                # Validate colors before returning
+                cor_fundo = resultado[0] if resultado[0] and is_valid_color(resultado[0]) else "white"
+                cor_btn = resultado[1] if resultado[1] and is_valid_color(resultado[1]) else "#0078D7"
+                return (cor_fundo, cor_btn)
+            else:
+                return ("white", "#0078D7")  # padrão
+    except mysql.connector.Error as err:
+        print(f"Erro no banco de dados: {err}")
+        return ("white", "#0078D7")
+    finally:
+        if conn.is_connected():
+            conn.close()
+
+def is_valid_color(color):
+    """Check if a string is a valid hex color"""
+    if not color or not isinstance(color, str):
+        return False
+    color = color.lstrip('#')
+    return len(color) == 6 and all(c in '0123456789abcdefABCDEF' for c in color)
+def apos_login(user_id):
+    cor_fundo, cor_btn = obter_preferencias_cores(user_id)
+
+    # Ensure colors are valid before applying
+    if cor_fundo and is_valid_color(cor_fundo):
+        app.configure(bg=cor_fundo)
+        pagina_principal.configure(fg_color=cor_fundo)
+        pagina_definicoes.configure(fg_color=cor_fundo)
+
+    if cor_btn and is_valid_color(cor_btn):
+        aplicar_cor_todos_botoes(cor_btn)
+    else:
+        aplicar_cor_todos_botoes("#0078D7")
+
+def guardar_preferencias():
+    if user_id is None:
+        messagebox.showwarning("Aviso", "Deve estar logado para guardar as preferências.")
+        return
+
+    cor_fundo = app.cget("bg")
+    cor_btn = cor_selecionada
+
+    guardar_preferencias_cores(user_id, cor_fundo, cor_btn)
+    messagebox.showinfo("Sucesso", "Preferências guardadas com sucesso!")
+
+#---------IMPORT/EXPORT
+def serializar(obj):
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    return obj
+
+
+def exportar_dados(user_id=None):
+    try:
+        conn = obter_conexao()
+        with conn.cursor() as cursor:
+            if user_id:
+                cursor.execute("SELECT data, exercicio, calorias FROM registos WHERE user_id = %s", (user_id,))
+                nome_arquivo = f"registos_usuario_{user_id}"
+            else:
+                cursor.execute("SELECT id, data, exercicio, calorias FROM registos")
+                nome_arquivo = "registos_completos"
+
+            registos = cursor.fetchall()
+            colunas = [desc[0] for desc in cursor.description]
+
+            with open(f"{nome_arquivo}.csv", "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(colunas)
+                writer.writerows(registos)
+
+            dados_json = [dict(zip(colunas, linha)) for linha in registos]
+            with open(f"{nome_arquivo}.json", "w", encoding="utf-8") as f:
+                json.dump(dados_json, f, indent=4, default=serializar)
+
+            messagebox.showinfo("Sucesso", f"Dados exportados para:\n{nome_arquivo}.csv\n{nome_arquivo}.json")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha na exportação: {str(e)}")
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
+
+def importar_dados(user_id=None):
+    arquivo = filedialog.askopenfilename(
+        title="Selecione arquivo",
+        filetypes=[("CSV/JSON", "*.csv *.json"), ("CSV", "*.csv"), ("JSON", "*.json")]
+    )
+    if not arquivo:
+        return
+
+    try:
+        conn = obter_conexao()
+        cursor = conn.cursor()
+
+        if arquivo.endswith('.csv'):
+            with open(arquivo, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for linha in reader:
+                    cursor.execute("""
+                        INSERT INTO registos (user_id, data, exercicio, calorias)
+                        VALUES (%s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            data = VALUES(data),
+                            exercicio = VALUES(exercicio),
+                            calorias = VALUES(calorias)
+                        """, (
+                        user_id if user_id else linha.get('id'),
+                        linha.get('data', datetime.now().strftime('%Y-%m-%d')),
+                        int(linha.get('exercicio', 0)),
+                        int(linha.get('calorias', 0))
+                    ))
+
+        elif arquivo.endswith('.json'):
+            with open(arquivo, encoding="utf-8") as f:
+                dados = json.load(f)
+                for linha in dados:
+                    cursor.execute("""
+                        INSERT INTO registos (user_id, data, exercicio, calorias)
+                        VALUES (%s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            data = VALUES(data),
+                            exercicio = VALUES(exercicio),
+                            calorias = VALUES(calorias)
+                        """, (
+                        user_id if user_id else linha.get('id'),
+                        linha.get('data', datetime.now().strftime('%Y-%m-%d')),
+                        int(linha.get('exercicio', 0)),
+                        int(linha.get('calorias', 0))
+                    ))
+
+        conn.commit()
+        messagebox.showinfo("Sucesso", "Dados importados com sucesso!")
+        if user_id:
+            mostrar_grafico_do_user()
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha na importação: {str(e)}")
+    finally:
+        if cursor: cursor.close()
+        if conn and conn.is_connected(): conn.close()
+
+
+def mostrar_pagina_import_export():
+    # Esconder todas as outras páginas
+    for widget in app.winfo_children():
+        if isinstance(widget, ctk.CTkFrame):
+            widget.place_forget()
+
+    pagina_import_export = ctk.CTkFrame(app)
+    pagina_import_export.place(relwidth=1, relheight=1)
+
+    # Título
+    ctk.CTkLabel(pagina_import_export, text="Importar/Exportar Dados", font=("Arial", 20)).pack(pady=30)
+
+    # Frame central
+    frame_central = ctk.CTkFrame(pagina_import_export)
+    frame_central.pack(expand=True)
+
+    # Botão Exportar
+    ctk.CTkButton(
+        frame_central,
+        text="Exportar Meus Dados (CSV+JSON)",
+        command=lambda: exportar_dados(user_id),
+        width=220,
+        height=40
+    ).pack(pady=15)
+
+    # Botão Importar
+    ctk.CTkButton(
+        frame_central,
+        text="Importar Dados",
+        command=lambda: importar_dados(user_id),
+        width=220,
+        height=40
+    ).pack(pady=15)
+
+    # Botão Voltar - CORRIGIDO
+    ctk.CTkButton(
+        pagina_import_export,
+        text="Voltar",
+        command=lambda: [pagina_import_export.place_forget(), pagina_principal.place(relwidth=1, relheight=1)],
+        width=120,
+        height=30
+    ).pack(side="bottom", pady=20)
+# ---------------- Páginas ---------------- #
+
+# Página Principal
+pagina_principal = ctk.CTkFrame(app)
+pagina_principal.place(relwidth=1, relheight=1)
+
+titulo = ctk.CTkLabel(pagina_principal, text="Página Principal", font=("Arial", 18))
+titulo.place(relx=0.5, y=30, anchor="center")
+
+menu_visivel = [False]
+
+frame_grafico = ctk.CTkFrame(pagina_principal, height=300)
+frame_grafico.place(relx=0.5, rely=0.6, anchor="center", relwidth=0.8)
+
+# Menu
+botao_menu = ctk.CTkButton(
+    pagina_principal,
+    image=CTkImage(Image.open("imagens/menu.png"), size=(24, 24)),
+    text="",
+    width=30,
+    command=toggle_menu
+)
+botao_menu.place(x=10, y=10)
+
+
+botoes_menu = [
+    ctk.CTkButton(pagina_principal, text="Adicionar Registo", command=lambda: janela_adicionar_registo(user_id, mostrar_grafico_do_user)),
+    ctk.CTkButton(pagina_principal, text="Ver Registos", command=janela_listar_registos),
+    ctk.CTkButton(pagina_principal, text="Importar/Exportar", command=mostrar_pagina_import_export),  # NOVO BOTÃO
+]
+
+botao_def_icon = ctk.CTkButton(
+    pagina_principal,
+    image=CTkImage(Image.open("imagens/definicoes.png"), size=(24, 24)),
+    text="",
+    width=30,
+    command=lambda: mostrar_pagina(pagina_definicoes)
+)
+botao_def_icon.place(relx=1.0, x=-10, y=10, anchor="ne")
+
+# Página Definições---------------- #
+pagina_definicoes = ctk.CTkFrame(app)
+
+# Configurações gerais---------------- #
+label_def = ctk.CTkLabel(pagina_definicoes, text="Definições", font=("Arial", 18))
+label_def.place(relx=0.5, y=40, anchor="center")
+
+label_name = ctk.CTkLabel(pagina_definicoes, text="")
+label_name.place(relx=0.5, x=400, y=40, anchor="center")
+
+botao_modo = ctk.CTkButton(pagina_definicoes, text="Alternar Modo Claro/Escuro",
+                           command=alternar_tema)
+botao_modo.place(relx=0.5, x=-450, y=100, anchor="nw")
+
+botao_voltar = ctk.CTkButton(pagina_definicoes, text="Voltar",
+                             command=lambda: mostrar_pagina(pagina_principal))
+botao_voltar.place(relx=0.5, x=450, y=570, anchor="se")
+
+
+btn_escolher_cor = ctk.CTkButton(pagina_definicoes, text="Escolher Cor",
+                                 command=ask_color)
+btn_escolher_cor.place(relx=0.5, x=-450, y=160, anchor="nw")
+
+btn_txt_cor = ctk.CTkButton(pagina_definicoes, text="Alternar cor texto",
+                            command=trocar_cor_texto)
+btn_txt_cor.place(relx=0.5, x=-450, y=220, anchor="nw")
+
+# Login e criação de utilizadores
+label_login = ctk.CTkLabel(pagina_definicoes, text="Login / Criar Conta", font=("Arial", 14))
+label_login.place(relx=0.5,x=300, y=260, anchor="center")
+
+tex_box_name = ctk.CTkEntry(pagina_definicoes, placeholder_text="Nome", width=250)
+tex_box_name.place(relx=0.5,x=300, y=300, anchor="center")
+
+tex_box_pass = ctk.CTkEntry(pagina_definicoes, placeholder_text="Senha", show="*", width=250)
+tex_box_pass.place(relx=0.5, x=300, y=340, anchor="center")
+
+botao_login = ctk.CTkButton(pagina_definicoes, text="Login", command=login_nome)
+botao_login.place(relx=0.5, x=300 , y=380, anchor="center")
+
+botao_New_user = ctk.CTkButton(pagina_definicoes, text="Criar Novo Utilizador", command=registar_novo_utilizador)
+botao_New_user.place(relx=0.5,x=300, y=420, anchor="center")
+
+label_status = ctk.CTkLabel(pagina_definicoes, text="")
+label_status.place(relx=0.5, x=300, y=460, anchor="center")
+
+botao_guardar_pref = ctk.CTkButton(pagina_definicoes, text="Guardar Preferências", command=guardar_preferencias)
+botao_guardar_pref.place(relx=0.5, x=-450, y=520, anchor="nw")
+# Volume slider
+label_volume = ctk.CTkLabel(pagina_definicoes, text="Volume Som")
+label_volume.place(relx=0.5, x=-450, y=340, anchor="nw")
+
+slider_volume = ctk.CTkSlider(pagina_definicoes, from_=0, to=1, number_of_steps=20,
+                             command=alterar_volume)
+slider_volume.set(volume_atual)
+slider_volume = ctk.CTkSlider(pagina_definicoes, from_=0, to=1, number_of_steps=20, command=alterar_volume, width=300)
+slider_volume.set(volume_atual)
+slider_volume.place(relx=0.5, x=-450, y=380, anchor="nw")
+
+botao_som = ctk.CTkButton(pagina_definicoes, text="Tocar Som", command=tocar_som)
+botao_som.place(relx=0.5, x=-450, y=280, anchor="nw")
+
+# Aplicar cor inicialmente aos botões
+aplicar_cor_todos_botoes(cor_selecionada)
+
+# Mostrar página principal ao iniciar
+mostrar_pagina(pagina_principal)
+
+app.mainloop()
