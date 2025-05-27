@@ -1,0 +1,122 @@
+from db import obter_conexao
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+# Criação da tabela
+with obter_conexao() as conn:
+    with conn.cursor() as cursor:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS registos (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            data DATE NOT NULL,
+            exercicio_minutos INT,
+            calorias INT
+        )
+        """)
+        conn.commit()
+
+# === FUNÇÕES ===
+
+def adicionar_registo():
+    while True:
+        data_input = input("Data (AAAA-MM-DD) [ou Enter para hoje]: ").strip()
+        if not data_input:
+            data = datetime.now().strftime("%Y-%m-%d")
+            break
+        try:
+            data_obj = datetime.strptime(data_input, "%Y-%m-%d")
+            hoje = datetime.now()
+            if data_obj.date() > hoje.date():
+                print("A data não pode ser no futuro.")
+            else:
+                data = data_input
+                break
+        except ValueError:
+            print("Formato inválido. Use AAAA-MM-DD.")
+
+    while True:
+        try:
+            exercicio = int(input("Minutos de exercício: "))
+            if exercicio < 0 or exercicio > 1440:
+                print("Valor inválido. Deve ser entre 0 e 1440 minutos.")
+                continue
+            break
+        except ValueError:
+            print("Insira um número inteiro válido.")
+
+    while True:
+        try:
+            calorias = int(input("Calorias ingeridas: "))
+            if calorias < 0 or calorias > 10000:
+                print("Valor inválido. Deve ser entre 0 e 10000.")
+                continue
+            break
+        except ValueError:
+            print("Insira um número inteiro válido.")
+
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO registos (data, exercicio_minutos, calorias)
+                VALUES (%s, %s, %s)
+            """, (data, exercicio, calorias))
+            conn.commit()
+            print("Registo adicionado com sucesso!\n")
+
+def listar_registos():
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM registos ORDER BY data")
+            registos = cursor.fetchall()
+            for r in registos:
+                print(f"{r[1]} | Exercício: {r[2]} min | Calorias: {r[3]}")
+            print()
+
+def mostrar_grafico():
+    with obter_conexao() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT data, exercicio_minutos, calorias FROM registos ORDER BY data")
+            dados = cursor.fetchall()
+
+            if not dados:
+                print("Nenhum dado para mostrar no gráfico.")
+                return
+
+            datas = [str(d[0]) for d in dados]
+            exercicios = [d[1] for d in dados]
+            calorias = [d[2] for d in dados]
+
+            x = range(len(datas))
+
+            plt.figure(figsize=(10, 5))
+            plt.bar(x, exercicios, width=0.4, label='Exercício (min)', align='center')
+            plt.bar([i + 0.4 for i in x], calorias, width=0.4, label='Calorias', align='center')
+            plt.xticks([i + 0.2 for i in x], datas, rotation=45)
+            plt.title("Registo Diário de Saúde e Bem-Estar")
+            plt.xlabel("Data")
+            plt.ylabel("Valores")
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+
+def menu():
+    while True:
+        print("\n--- MENU SAÚDE E BEM-ESTAR ---")
+        print("1. Adicionar registo")
+        print("2. Ver registos")
+        print("3. Mostrar gráfico")
+        print("4. Sair")
+        opcao = input("Escolha uma opção: ")
+
+        if opcao == '1':
+            adicionar_registo()
+        elif opcao == '2':
+            listar_registos()
+        elif opcao == '3':
+            mostrar_grafico()
+        elif opcao == '4':
+            break
+        else:
+            print("Opção inválida.\n")
+
+menu()
