@@ -1,1 +1,171 @@
+#Feito a 16/05/2025
+
+import customtkinter as ctk
+from customtkinter import CTkImage
+from PIL import Image
+import sys
+import os
+import json
+
+from aula import mostrar_grafico  # gráfico de pizza
+from interface_adicionar import janela_adicionar_registo
+from interface_listar import janela_listar_registos
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+# ---------------- Configuração de Tema ---------------- #
+
+FICHEIRO_TEMA = "config_tema.json"
+temas_disponiveis = ["blue", "green", "dark-blue"]
+
+def guardar_tema(tema):
+    with open(FICHEIRO_TEMA, "w") as f:
+        json.dump({"tema": tema}, f)
+
+def carregar_tema():
+    if os.path.exists(FICHEIRO_TEMA):
+        try:
+            with open(FICHEIRO_TEMA, "r") as f:
+                return json.load(f).get("tema", "blue")
+        except:
+            return "blue"
+    return "blue"
+
+# Aplicar tema carregado
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme(carregar_tema())
+
+# ---------------- App ---------------- #
+
+app = ctk.CTk()
+app.geometry("1024x600")
+app.title("App com Menu e Definições")
+
+# ---------------- Funções ---------------- #
+
+def mostrar_pagina(pagina):
+    for frame in [pagina_principal, pagina_definicoes]:
+        frame.place_forget()
+    pagina.place(relwidth=1, relheight=1)
+
+def alternar_tema():
+    atual = ctk.get_appearance_mode()
+    ctk.set_appearance_mode("light" if atual == "Dark" else "dark")
+
+def toggle_menu():
+    if menu_visivel[0]:
+        for botao in botoes_menu:
+            botao.place_forget()
+        menu_visivel[0] = False
+    else:
+        for i, botao in enumerate(botoes_menu):
+            botao.place(x=10, y=50 + i * 40)
+        menu_visivel[0] = True
+
+# Gráfico de barras fixo na página principal
+def mostrar_grafico_barras():
+    categorias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
+    valores = [30, 45, 50, 40, 60]  # exemplo de dados
+
+    fig = Figure(figsize=(5, 3), dpi=100)
+    ax = fig.add_subplot(111)
+    ax.bar(categorias, valores, color='skyblue')
+    ax.set_title("Exercício por dia")
+    ax.set_ylabel("Minutos")
+
+    for widget in frame_grafico.winfo_children():
+        widget.destroy()
+
+    canvas = FigureCanvasTkAgg(fig, master=frame_grafico)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill="both", expand=True)
+
+# ---------------- Página Principal ---------------- #
+
+pagina_principal = ctk.CTkFrame(app)
+pagina_principal.place(relwidth=1, relheight=1)
+
+titulo = ctk.CTkLabel(pagina_principal, text="Página Principal", font=("Arial", 18))
+titulo.place(relx=0.5, y=30, anchor="center")
+
+menu_visivel = [False]
+
+botao_menu = ctk.CTkButton(
+    pagina_principal,
+    text="menu",
+    width=30,
+    command=toggle_menu
+)
+botao_menu.place(x=10, y=10)
+
+botoes_menu = [
+    ctk.CTkButton(pagina_principal, text="Adicionar Registo", command=janela_adicionar_registo),
+    ctk.CTkButton(pagina_principal, text="Ver Registos", command=janela_listar_registos),
+    ctk.CTkButton(pagina_principal, text="Mostrar Gráfico", command=mostrar_grafico),  # gráfico de pizza
+]
+
+botao_def_icon = ctk.CTkButton(
+    pagina_principal,
+    text="def",
+    width=30,
+    command=lambda: mostrar_pagina(pagina_definicoes)
+)
+botao_def_icon.place(relx=1.0, x=-10, y=10, anchor="ne")
+
+# Frame para gráfico de barras
+frame_grafico = ctk.CTkFrame(pagina_principal, height=300)
+frame_grafico.place(relx=0.5, rely=0.6, anchor="center", relwidth=0.8)
+
+# ---------------- Página Definições ---------------- #
+
+pagina_definicoes = ctk.CTkFrame(app)
+
+label_def = ctk.CTkLabel(pagina_definicoes, text=" Definições", font=("Arial", 18))
+label_def.place(relx=0.5, y=40, anchor="center")
+
+label_name = ctk.CTkLabel(pagina_definicoes)
+label_name.place(relx=0.5, x=400, y=40, anchor="center")
+
+def login_nome():
+    nome = tex_box_name.get()
+    if nome.strip():
+        label_name.configure(text=f"Bem-vindo, {nome}", font=("Arial", 18))
+
+botao_modo = ctk.CTkButton(pagina_definicoes, text="Alternar Modo Claro/Escuro", command=alternar_tema)
+botao_modo.place(relx=0.5, x=-450, y=100, anchor="nw")
+
+botao_voltar = ctk.CTkButton(pagina_definicoes, text="← Voltar", command=lambda: mostrar_pagina(pagina_principal))
+botao_voltar.place(relx=0.5, x=450, y=570, anchor="se")
+
+botao_login = ctk.CTkButton(pagina_definicoes, text="Login", command=login_nome)
+botao_login.place(relx=0.5, x=450, y=370, anchor="se")
+
+botao_New_user = ctk.CTkButton(pagina_definicoes, text="novo utilizador")
+botao_New_user.place(relx=0.5, x=290, y=370, anchor="se")
+
+tex_box_name = ctk.CTkEntry(pagina_definicoes, width=300, placeholder_text="Insira nome")
+tex_box_name.place(relx=0.5, x=450, y=250, anchor="se")
+
+tex_box_pass = ctk.CTkEntry(pagina_definicoes, width=300, placeholder_text="Password", show="*")
+tex_box_pass.place(relx=0.5, x=450, y=320, anchor="se")
+
+# Alteração de cor de tema com reinício
+def mudar_tema(novo_tema):
+    guardar_tema(novo_tema)
+    app.destroy()
+    os.execl(sys.executable, sys.executable, *sys.argv)
+
+dropdown_tema = ctk.CTkOptionMenu(
+    pagina_definicoes,
+    values=temas_disponiveis,
+    command=mudar_tema
+)
+dropdown_tema.set("Escolher Tema")
+dropdown_tema.place(relx=0.5, x=-450, y=160, anchor="nw")
+
+# ---------------- Início ---------------- #
+
+mostrar_grafico_barras()  # Mostrar gráfico de barras ao iniciar
+mostrar_pagina(pagina_principal)
+app.mainloop()
 
