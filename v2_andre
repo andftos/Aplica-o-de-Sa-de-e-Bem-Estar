@@ -1,1 +1,155 @@
+import customtkinter as ctk
+from customtkinter import CTkImage
+from PIL import Image
+import sys
+import threading
+import time
+import os
+import json
+from playsound import playsound
 
+# ---------------- Configuração de Tema ---------------- #
+
+FICHEIRO_TEMA = "config_tema.json"
+temas_disponiveis = ["blue", "green", "dark-blue"]
+
+def guardar_tema(tema):
+    with open(FICHEIRO_TEMA, "w") as f:
+        json.dump({"tema": tema}, f)
+
+def carregar_tema():
+    if os.path.exists(FICHEIRO_TEMA):
+        try:
+            with open(FICHEIRO_TEMA, "r") as f:
+                return json.load(f).get("tema", "blue")
+        except:
+            return "blue"
+    return "blue"
+
+# Aplicar tema carregado
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme(carregar_tema())
+
+# ---------------- App ---------------- #
+
+app = ctk.CTk()
+app.geometry("1024x600")
+app.title("App com Menu e Definições")
+
+#CAMINHO_SOM = "sons/water-2s.mp3"
+
+# Imagens
+#img_menu = #CTkImage(Image.open("imagens/menu.png"), #size=(24, 24))
+#img_def = #CTkImage(Image.open("imagens/definicoes.png#"), size=(24, 24))
+
+# ---------------- Funções ---------------- #
+
+def mostrar_pagina(pagina):
+    for frame in [pagina_principal, pagina_definicoes]:
+        frame.place_forget()
+    pagina.place(relwidth=1, relheight=1)
+
+def alternar_tema():
+    atual = ctk.get_appearance_mode()
+    ctk.set_appearance_mode("light" if atual == "Dark" else "dark")
+
+def toggle_menu():
+    if menu_visivel[0]:
+        for botao in botoes_menu:
+            botao.place_forget()
+        menu_visivel[0] = False
+    else:
+        for i, botao in enumerate(botoes_menu):
+            botao.place(x=10, y=50 + i * 40)
+        menu_visivel[0] = True
+
+#def tocar_som():
+#    try:
+#        playsound(CAMINHO_SOM)
+#    except Exception as e:
+#        print("Erro ao tocar som:", e)
+
+# ---------------- Página Principal ---------------- #
+
+pagina_principal = ctk.CTkFrame(app)
+pagina_principal.place(relwidth=1, relheight=1)
+
+titulo = ctk.CTkLabel(pagina_principal, text="Página Principal", font=("Arial", 18))
+titulo.place(relx=0.5, y=30, anchor="center")
+
+menu_visivel = [False]
+
+botao_menu = ctk.CTkButton(
+    pagina_principal,
+#   image=img_menu,
+    text="menu",
+    width=30,
+    command=toggle_menu)
+botao_menu.place(x=10, y=10)
+
+botoes_menu = [
+    ctk.CTkButton(pagina_principal, text="Opção 1"),
+    ctk.CTkButton(pagina_principal, text="Opção 2"),
+    ctk.CTkButton(pagina_principal, text="Opção 3"),
+]
+
+botao_def_icon = ctk.CTkButton(
+    pagina_principal,
+#   image=img_def,
+    text="def",
+    width=30,
+    command=lambda: mostrar_pagina(pagina_definicoes)
+)
+botao_def_icon.place(relx=1.0, x=-10, y=10, anchor="ne")
+
+# ---------------- Página Definições ---------------- #
+
+pagina_definicoes = ctk.CTkFrame(app)
+
+label_def = ctk.CTkLabel(pagina_definicoes, text=" Definições", font=("Arial", 18))
+label_def.place(relx=0.5, y=40, anchor="center")
+
+label_name = ctk.CTkLabel(pagina_definicoes)
+label_name.place(relx=0.5, x=400, y=40, anchor="center")  # Deixa fixo
+
+def login_nome():
+    nome = tex_box_name.get()
+    if nome.strip():
+        label_name.configure(text=f"Bem-vindo, {nome}", font=("Arial", 18))
+
+botao_modo = ctk.CTkButton(pagina_definicoes, text="Alternar Modo Claro/Escuro", command=alternar_tema)
+botao_modo.place(relx=0.5, x=-450, y=100, anchor="nw")
+
+botao_voltar = ctk.CTkButton(pagina_definicoes, text="← Voltar", command=lambda: mostrar_pagina(pagina_principal))
+botao_voltar.place(relx=0.5, x=450, y=570, anchor="se")
+
+botao_login = ctk.CTkButton(pagina_definicoes, text="Login", command=login_nome)
+botao_login.place(relx=0.5, x=450, y=370, anchor="se")
+
+botao_New_user = ctk.CTkButton(pagina_definicoes, text="novo utilizador")
+botao_New_user.place(relx=0.5, x=290, y=370, anchor="se")
+
+tex_box_name = ctk.CTkEntry(pagina_definicoes, width=300, placeholder_text="Insira nome")
+tex_box_name.place(relx=0.5, x=450, y=250, anchor="se")
+
+tex_box_pass = ctk.CTkEntry(pagina_definicoes, width=300, placeholder_text="Password", show="*")
+tex_box_pass.place(relx=0.5, x=450, y=320, anchor="se")
+
+# Alteração de cor de tema com reinício
+def mudar_tema(novo_tema):
+    guardar_tema(novo_tema)
+    app.destroy()
+    os.execl(sys.executable, sys.executable, *sys.argv)
+
+dropdown_tema = ctk.CTkOptionMenu(
+    pagina_definicoes,
+    values=temas_disponiveis,
+    command=mudar_tema
+)
+dropdown_tema.set("Escolher Tema")
+dropdown_tema.place(relx=0.5, x=-450, y=160, anchor="nw")
+
+# ---------------- Início ---------------- #
+
+mostrar_pagina(pagina_principal)
+app.mainloop()
