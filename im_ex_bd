@@ -1,0 +1,49 @@
+import json
+from db import obter_conexao  # Usando sua conexão existente
+from tkinter import messagebox, filedialog
+
+
+def importar_json():
+    """Função simplificada para importar JSON"""
+    try:
+        # Pedir arquivo ao usuário
+        arquivo = filedialog.askopenfilename(
+            title="Selecione o arquivo JSON",
+            filetypes=[("JSON files", "*.json")]
+        )
+        if not arquivo:
+            return
+
+        conexao = obter_conexao()
+        cursor = conexao.cursor()
+
+        with open(arquivo, encoding='utf-8') as f:
+            dados = json.load(f)
+
+            for linha in dados:
+                cursor.execute(
+                    """
+                    INSERT INTO registos (user_id, data, exercicio, calorias)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        data = VALUES(data),
+                        exercicio = VALUES(exercicio),
+                        calorias = VALUES(calorias)
+                    """,
+                    (
+                        linha.get('user_id', 1),  # Assume user_id 1 se não especificado
+                        linha.get('data'),
+                        int(linha.get('exercicio', 0)),
+                        int(linha.get('calorias', 0))
+                    )
+                )
+
+        conexao.commit()
+        messagebox.showinfo("Sucesso", "Dados importados com sucesso!")
+
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha na importação: {str(e)}")
+
+    finally:
+        if 'cursor' in locals(): cursor.close()
+        if 'conexao' in locals(): conexao.close()
